@@ -159,10 +159,17 @@ def pull_events(n):
         print(f"  WARNING: {len(too_big)} days have over {config.MAX_SKIP} reports, "
               f"those days can't be fully sampled: {sorted(too_big)[:10]}")
 
-    # split n evenly across days, giving the leftover reports to random days
+    # give each year the same share, then split each year's share across its days
+    # by how many reports each day has, so quiet days (like weekends) aren't oversampled
     days = sorted(d for d, t in totals.items() if t > 0)
-    base, extra = divmod(n, len(days))
-    bonus = set(rng.sample(days, extra))
+    years = range(config.START_YEAR, config.END_YEAR + 1)
+    per_year = n // len(years)
+    quota = {}
+    for year in years:
+        year_days = [d for d in days if d.startswith(str(year))]
+        year_total = sum(totals[d] for d in year_days)
+        for d in year_days:
+            quota[d] = round(per_year * totals[d] / year_total)
 
     print(f"sampling {n} adverse event reports from {len(days)} days")
     config.RAW_DIR.mkdir(parents=True, exist_ok=True)
@@ -171,7 +178,7 @@ def pull_events(n):
     # write as we go so a crash halfway through doesn't lose everything
     with open(path, "w") as f:
         for i, day in enumerate(days):
-            k = base + (day in bonus)
+            k = quota[day]
             if k == 0:
                 continue
             for r in sample_day(day, totals[day], k, rng):
