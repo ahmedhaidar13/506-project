@@ -7,7 +7,6 @@
 # Set OPENFDA_API_KEY first to get 120k requests a day instead of 1k.
 
 import argparse
-import calendar
 import json
 import random
 import time
@@ -39,7 +38,7 @@ def get(path, params):
         r = requests.get(url, timeout=60)
         if r.status_code == 404:  # openFDA returns 404 when nothing matches
             return {"meta": {"results": {"total": 0}}, "results": []}
-        if r.status_code == 429:  # rate limited, wait and try again
+        if r.status_code == 429 or r.status_code >= 500:  # rate limited or server hiccup, wait and retry
             time.sleep(5 * 2 ** attempt)
             continue
         r.raise_for_status()
@@ -111,46 +110,78 @@ def count_recalls(recalls):
     return counts
 
 
-# search string for all of our devices' event reports received in a given month
-def month_search(year, month):
-    last_day = calendar.monthrange(year, month)[1]
-    dates = f"date_received:[{year}{month:02d}01+TO+{year}{month:02d}{last_day}]"
+# search string for all of our devices' event reports in a date range (YYYYMMDD)
+def date_search(start, end):
+    dates = f"date_received:[{start}+TO+{end}]"
     return make_search(config.PRODUCT_CODES.keys(), dates,
                        field="device.device_report_product_code")
 
 
-# Get a random sample of n event reports from one month
-PAGE = 500
+# how many reports each day of a year has, in one request (keys look like "20200131")
+def daily_totals(year):
+    data = get(EVENTS, {"search": date_search(f"{year}0101", f"{year}1231"),
+                        "count": "date_received", "limit": 1000})
+    return {row["time"]: row["count"] for row in data["results"]}
 
 
-def sample_month(year, month, n, rng):
-    # grab random pages of 500 from the month instead of just the first n reports
-    search = month_search(year, month)
-    total = get(EVENTS, {"search": search, "limit": 1})["meta"]["results"]["total"]
+# Get a random sample of k event reports from one day
+# Most months have over 25,000 reports, which is past openFDA's skip limit,
+# so we sample by day instead (a day is well under the limit).
+PAGE = 25
+
+
+def sample_day(day, total, k, rng):
+    search = date_search(day, day)
     pages = list(range(0, min(total, config.MAX_SKIP), PAGE))
-    picked = rng.sample(pages, min(len(pages), (n + PAGE - 1) // PAGE))
+    picked = rng.sample(pages, min(len(pages), -(-k // PAGE)))
 
     reports = []
-    for skip in picked:
+    for skip in sorted(picked):
+        # sort so pages come back in the same order every request
         reports += get(EVENTS, {"search": search, "limit": PAGE, "skip": skip})["results"]
         time.sleep(0.25)
-    return reports[:n], total
+    return rng.sample(reports, min(k, len(reports)))
 
 
-# sample n adverse event reports spread evenly across every month in our date range
+# sample n adverse event reports spread evenly across every day in our date range
 def pull_events(n):
-    print(f"sampling {n} adverse event reports")
     rng = random.Random(config.SEED)
-    months = [(y, m) for y in range(config.START_YEAR, config.END_YEAR + 1)
-              for m in range(1, 13)]
-    per_month = n // len(months)
 
-    reports = []
-    for year, month in months:
-        got, total = sample_month(year, month, per_month, rng)
-        reports += got
-        print(f"  {year}-{month:02d}: took {len(got)} of {total}")
-    save(reports, "events_sample")
+    print("counting reports per day")
+    totals = {}
+    for year in range(config.START_YEAR, config.END_YEAR + 1):
+        totals.update(daily_totals(year))
+        time.sleep(0.25)
+    save([{"date": d, "reports": t} for d, t in sorted(totals.items())], "daily_totals")
+
+    too_big = [d for d, t in totals.items() if t > config.MAX_SKIP]
+    if too_big:
+        print(f"  WARNING: {len(too_big)} days have over {config.MAX_SKIP} reports, "
+              f"those days can't be fully sampled: {sorted(too_big)[:10]}")
+
+    # split n evenly across days, giving the leftover reports to random days
+    days = sorted(d for d, t in totals.items() if t > 0)
+    base, extra = divmod(n, len(days))
+    bonus = set(rng.sample(days, extra))
+
+    print(f"sampling {n} adverse event reports from {len(days)} days")
+    config.RAW_DIR.mkdir(parents=True, exist_ok=True)
+    path = config.RAW_DIR / "events_sample.jsonl"
+    seen = set()
+    # write as we go so a crash halfway through doesn't lose everything
+    with open(path, "w") as f:
+        for i, day in enumerate(days):
+            k = base + (day in bonus)
+            if k == 0:
+                continue
+            for r in sample_day(day, totals[day], k, rng):
+                key = r.get("mdr_report_key")
+                if key not in seen:  # skip duplicate reports
+                    seen.add(key)
+                    f.write(json.dumps(r) + "\n")
+            if day.endswith("01"):
+                print(f"  {day[:4]}-{day[4:6]}: {len(seen)} reports so far")
+    print(f"  saved {len(seen)} records to {path.name}")
 
 
 # Make sure our product codes exist and look for other codes we might be missing
