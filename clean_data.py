@@ -41,6 +41,7 @@ def get_device_field(devices, field):
     return ""
 
 df["product_code"] = df["device"].apply(lambda d: get_device_field(d, "device_report_product_code"))
+df = df[df["product_code"].isin(config.PRODUCT_CODES)]
 df["brand_name"] = df["device"].apply(lambda d: get_device_field(d, "brand_name"))
 df["generic_name"] = df["device"].apply(lambda d: get_device_field(d, "generic_name"))
 df["device_manufacturer"] = df["device"].apply(lambda d: get_device_field(d, "manufacturer_d_name"))
