@@ -2,7 +2,7 @@ import pandas as pd
 import config
 
 #load raw adverse event reports
-df = pd.read_json(config.RAW_DIR / "events_sample.jsonl", lines=True, convert_dates=False)
+df = pd.read_json(config.RAW_DIR / "events_sample.jsonl", lines=True, convert_dates=False, dtype=False)
 
 print("rows before:", len(df))
 
