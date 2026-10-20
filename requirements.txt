@@ -1,3 +1,5 @@
 requests
 openpyxl
 pandas
+scikit-learn
+matplotlib
