@@ -5,6 +5,8 @@
 import matplotlib
 matplotlib.use("Agg")  # save plots to files without opening a window
 import matplotlib.pyplot as plt
+import argparse
+
 import pandas as pd
 from sklearn.metrics import ConfusionMatrixDisplay, classification_report, f1_score
 from sklearn.tree import DecisionTreeClassifier
@@ -13,11 +15,30 @@ import config
 
 fig_dir = config.ROOT / "figures"
 
-# one-hot encode these columns
-cat_cols = ["product_code", "device_operator", "device_class", "report_source_code"]
+# one-hot encode these columns, in groups so we can add them one round at a time
+#   python model.py                          all groups
+#   python model.py --groups original        just what we had before
+#   python model.py --groups original setting usage
+feature_groups = {
+    "original": ["product_code", "device_operator", "device_class", "report_source_code"],
+    "setting": ["event_location", "reporter_occupation_code", "health_professional",
+                "implant_flag", "serviced_by_3rd_party"],
+    "usage": ["previous_use_code", "single_use_flag", "reprocessed_and_reused_flag"],
+    "patient": ["age_group", "patient_sex"],
+    "parts": ["part_battery", "part_tubing", "part_cartridge", "part_sensor", "part_transmitter",
+              "part_adhesive", "part_inserter", "part_screen_buttons", "part_software_app",
+              "part_receiver"],
+    # brand is handled like manufacturer (top brands, the rest are "Other"), see build_features
+    "brand": [],
+}
+cat_cols = []  # filled in from --groups when the script runs
+use_brand = False  # set to True when "brand" is in --groups
 
 # manufacturer has a lot of values, so keep the most common ones and call the rest "Other"
 n_manufacturers = 15
+
+# same idea for brand names (the specific pump or monitor, like a certain pump model)
+n_brands = 20
 
 # product_problems can list several problems per report, keep the most common ones as 0/1 columns
 n_problems = 30
@@ -46,6 +67,11 @@ def split(df):
 # the top manufacturers/problems are picked from the training set only so the test set doesn't leak in
 def build_features(train, test):
     top_mfr = train["device_manufacturer"].value_counts().head(n_manufacturers).index
+
+    # brand names are typed by reporters, so clean up case and spaces before counting
+    def clean_brand(df):
+        return df["brand_name"].str.upper().str.strip().str.replace(r"\s+", " ", regex=True)
+    top_brands = clean_brand(train).value_counts().head(n_brands).index
     problem_counts = train["product_problems"].str.split("|").explode().value_counts()
     problem_counts = problem_counts[(problem_counts.index != "") & ~problem_counts.index.isin(drop_problems)]
     top_problems = problem_counts.head(n_problems).index
@@ -53,6 +79,9 @@ def build_features(train, test):
     def features(df):
         X = df[cat_cols].replace("", "Unknown").copy()
         X["manufacturer"] = df["device_manufacturer"].where(df["device_manufacturer"].isin(top_mfr), "Other")
+        if use_brand:
+            brand = clean_brand(df)
+            X["brand"] = brand.where(brand.isin(top_brands), "Other")
         X = pd.get_dummies(X, dtype=int)
         problems = df["product_problems"].str.split("|")
         for p in top_problems:
@@ -87,6 +116,15 @@ def plot_importances(importances):
 
 # run the model and save plots
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--groups", nargs="+", default=list(feature_groups),
+                        choices=list(feature_groups))
+    args = parser.parse_args()
+    for g in args.groups:
+        cat_cols += feature_groups[g]
+    use_brand = "brand" in args.groups
+    print("feature groups:", ", ".join(args.groups))
+
     df = load()
     train, test = split(df)
     print(f"train: {len(train)} rows, injury/death share {train['label'].mean():.3f}")
