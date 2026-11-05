@@ -49,13 +49,22 @@ factor_groups = {
         "Reporter occupation": "reporter_occupation_code",
         "Patient age group": "age_group",
         "Patient sex": "patient_sex",
-        "Patient race": "patient_race",
-        "Patient ethnicity": "patient_ethnicity",
     },
     "setting": {
-        "Event location": "event_location",
         "Reporter is a health professional": "health_professional",
     },
+}
+
+# problem codes that basically restate the label (same list as drop_problems in model.py)
+near_label_problems = ["Adverse Event Without Identified Device or Use Problem",
+                       "Insufficient Device Problem Information"]
+
+# readable names for raw MAUDE codes (FDA MDR data file code keys and Form 3500A)
+code_labels = {
+    "previous_use_code": {"I": "Initial use", "R": "Reuse", "U": "Unknown", "*": "Invalid data"},
+    "reporter_occupation_code": {"003": "Non-healthcare professional"},
+    "health_professional": {"Y": "Yes", "N": "No", "*": "Invalid data"},
+    "single_use_flag": {"Y": "Yes", "N": "No"},
 }
 
 max_rows = 12  # most values shown per chart (the most common ones)
@@ -82,13 +91,14 @@ def factor_table(df, col, min_n):
     if col == "product_problems":
         # a report can have several problems, so count it under each one
         long = df[["label", col]].assign(value=df[col].str.split("|")).explode("value")
-        long = long[long["value"] != ""]
+        long = long[(long["value"] != "") & ~long["value"].isin(near_label_problems)]
     elif col == "parts":
         # share among reports that mention each part
         long = pd.concat([df.loc[df[c] == 1, ["label"]].assign(value=c.replace("part_", ""))
                           for c in part_cols])
     else:
-        long = df[["label"]].assign(value=df[col].replace("", "Unknown"))
+        value = df[col].replace("", "Unknown").replace(code_labels.get(col, {}))
+        long = df[["label"]].assign(value=value)
 
     t = long.groupby("value")["label"].agg(share="mean", n="count").reset_index()
     t = t[t["n"] >= min_n].sort_values("n", ascending=False).head(max_rows)

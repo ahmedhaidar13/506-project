@@ -85,12 +85,16 @@ def build_features(train, test):
     top_problems = problem_counts.head(n_problems).index
 
     def features(df):
-        X = df[cat_cols].replace("", "Unknown").copy()
+        # part_ columns are already 0/1, so add them as-is instead of one-hot encoding them
+        parts = [c for c in cat_cols if c.startswith("part_")]
+        X = df[[c for c in cat_cols if c not in parts]].replace("", "Unknown").copy()
         X["manufacturer"] = df["device_manufacturer"].where(df["device_manufacturer"].isin(top_mfr), "Other")
         if use_brand:
             brand = clean_brand(df)
             X["brand"] = brand.where(brand.isin(top_brands), "Other")
         X = pd.get_dummies(X, dtype=int)
+        for c in parts:
+            X[c] = df[c].astype(int)
         problems = df["product_problems"].str.split("|")
         for p in top_problems:
             X["problem_" + p] = problems.apply(lambda ps: int(p in ps))
