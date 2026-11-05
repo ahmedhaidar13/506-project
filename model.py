@@ -31,7 +31,14 @@ feature_groups = {
     # brand is handled like manufacturer (top brands, the rest are "Other"), see build_features
     "brand": [],
 }
+# our main model: the best F1 in our comparison, and every feature makes sense
+default_groups = ["original", "setting", "parts"]
+
+# insulin pump product codes, for --pumps (looks only inside pumps, without the sensors)
+pump_codes = ["LZG", "QFG", "QJI"]
+
 cat_cols = []  # filled in from --groups when the script runs
+fig_suffix = ""  # "_pumps" when running with --pumps, so plots don't overwrite each other
 use_brand = False  # set to True when "brand" is in --groups
 
 # manufacturer has a lot of values, so keep the most common ones and call the rest "Other"
@@ -45,7 +52,8 @@ n_problems = 30
 
 # problems to leave out if they turn out to give away the label (leakage check)
 # Something like "Adverse Event Without Identified Device or Use Problem"
-drop_problems = ["Adverse Event Without Identified Device or Use Problem"]
+drop_problems = ["Adverse Event Without Identified Device or Use Problem",
+                 "Insufficient Device Problem Information"]
 max_depth = 6
 
 
@@ -98,9 +106,9 @@ def plot_confusion_matrix(y_test, pred):
     disp = ConfusionMatrixDisplay.from_predictions(
         y_test, pred, display_labels=["Malfunction", "Injury/Death"], cmap="Blues", colorbar=False
     )
-    disp.ax_.set_title("Decision tree, 2024-2025 test set")
+    disp.ax_.set_title("Decision tree, 2024-2025 test set" + (" (pumps only)" if fig_suffix else ""))
     disp.figure_.tight_layout()
-    disp.figure_.savefig(fig_dir / "tree_confusion_matrix.png", dpi=150)
+    disp.figure_.savefig(fig_dir / f"tree_confusion_matrix{fig_suffix}.png", dpi=150)
     plt.close(disp.figure_)
 
 # Plot the top features, which can help us check for leakage
@@ -109,16 +117,17 @@ def plot_importances(importances):
     fig, ax = plt.subplots(figsize=(8, 6))
     ax.barh(top.index, top.values, color="#4C72B0")
     ax.set_xlabel("Feature importance")
-    ax.set_title("Top 15 features, decision tree")
+    ax.set_title("Top 15 features, decision tree" + (" (pumps only)" if fig_suffix else ""))
     fig.tight_layout()
-    fig.savefig(fig_dir / "tree_feature_importance.png", dpi=150)
+    fig.savefig(fig_dir / f"tree_feature_importance{fig_suffix}.png", dpi=150)
     plt.close(fig)
 
 # run the model and save plots
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--groups", nargs="+", default=list(feature_groups),
+    parser.add_argument("--groups", nargs="+", default=default_groups,
                         choices=list(feature_groups))
+    parser.add_argument("--pumps", action="store_true", help="only insulin pump reports")
     args = parser.parse_args()
     for g in args.groups:
         cat_cols += feature_groups[g]
@@ -126,6 +135,10 @@ if __name__ == "__main__":
     print("feature groups:", ", ".join(args.groups))
 
     df = load()
+    if args.pumps:
+        df = df[df["product_code"].isin(pump_codes)]
+        fig_suffix = "_pumps"
+        print("pumps only:", len(df), "reports")
     train, test = split(df)
     print(f"train: {len(train)} rows, injury/death share {train['label'].mean():.3f}")
     print(f"test:  {len(test)} rows, injury/death share {test['label'].mean():.3f}")
