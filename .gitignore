@@ -3,3 +3,6 @@ __pycache__/
 .env
 .DS_Store
 .venv/
+
+check_fields.py
+check_totals.py
