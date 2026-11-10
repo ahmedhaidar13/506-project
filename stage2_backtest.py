@@ -1,11 +1,6 @@
-# Stage 2: recall backtest
-# Does a spike in injury/death reports show up months before a recall for the same product code?
-#
-# Needs data/raw/recall.jsonl (from data_collection.py) and data/processed/events_clean.csv (from clean_data.py).
-# Saves data/processed/stage2_results.csv (summary) and stage2_recalls.csv (one row per recall).
-#
-# Note: events_clean.csv is a sample of the full MAUDE data (sampled in proportion to daily
-# volume), so monthly counts are scaled down, but they are scaled the same way for every month.
+# Recall backtest: does a spike in injury/death reports show up months before a
+# recall for the same product code? Counts come from sampled data, so they're
+# scaled down, but evenly across months.
 
 import json
 
