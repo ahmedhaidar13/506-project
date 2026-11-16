@@ -12,6 +12,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from sklearn.metrics import ConfusionMatrixDisplay, f1_score, precision_score, recall_score
+from sklearn.linear_model import LogisticRegression
 from sklearn.naive_bayes import BernoulliNB
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.tree import DecisionTreeClassifier
@@ -21,6 +22,7 @@ import model  # reuse load(), split(), build_features() and the feature groups
 
 fig_dir = config.ROOT / "figures"
 knn_ks = [5, 15, 50]                  # choices of k tried on the validation year
+logreg_cs = [0.01, 0.1, 1, 10]       # regularization strengths tried for logistic regression (smaller = simpler model)
 cutoffs = np.arange(0.05, 0.96, 0.05)  # probability cutoffs tried on the validation year
 
 
@@ -31,7 +33,7 @@ def best_cutoff(y_true, proba):
 
 
 # pick the cutoff (and k) on 2023, then refit on all training years and predict the test set
-def tune_and_predict(make_model, params, train, test, name):
+def tune_and_predict(make_model, params, train, test, name, param_name="k"):
     fit_part = train[train["year"] < 2023]
     val_part = train[train["year"] == 2023]
     X_fit, X_val = model.build_features(fit_part, val_part)
@@ -42,7 +44,7 @@ def tune_and_predict(make_model, params, train, test, name):
         if best is None or score > best[0]:
             best = (score, p, cutoff)
     _, p, cutoff = best
-    print(f"{name}: picked {'k=' + str(p) if p else 'default settings'}, cutoff {cutoff:.2f} "
+    print(f"{name}: picked {param_name + '=' + str(p) if p is not None else 'default settings'}, cutoff {cutoff:.2f} "
           f"(validation F1 {best[0]:.3f})")
     X_train, X_test = model.build_features(train, test)
     m = make_model(p).fit(X_train, train["label"])
@@ -73,7 +75,8 @@ if __name__ == "__main__":
     preds["Naive Bayes"], _, _ = tune_and_predict(lambda p: BernoulliNB(), [None], train, test, "Naive Bayes")
     preds["KNN"], k, _ = tune_and_predict(lambda k: KNeighborsClassifier(n_neighbors=k, weights="distance", n_jobs=-1),
                                           knn_ks, train, test, "KNN")
-
+    preds["Logistic regression"], c, _ = tune_and_predict(lambda c: LogisticRegression(C=c, class_weight="balanced", max_iter=2000),
+        logreg_cs, train, test, "Logistic regression", param_name="C")
     baseline = f1_score(y_test, [1] * len(y_test))
     rows = [{"model": "Always injury/death (baseline)", "f1": baseline, "precision": y_test.mean(), "recall": 1.0}]
     for name, p in preds.items():
@@ -96,3 +99,19 @@ if __name__ == "__main__":
     fig_dir.mkdir(exist_ok=True)
     fig.savefig(fig_dir / f"model_comparison{suffix}.png", dpi=150)
     print(f"\nsaved figures/model_comparison{suffix}.png and data/processed/model_comparison{suffix}.csv")
+    
+    
+    # logistic regression coefficients: which features push a report toward injury/death (positive)
+    # or toward malfunction (negative). Refit with the chosen C on all training years.
+    logreg = LogisticRegression(C=c, class_weight="balanced", max_iter=2000).fit(X_train, train["label"])
+    coefs = pd.Series(logreg.coef_[0], index=X_train.columns).sort_values()
+    top = pd.concat([coefs.head(10), coefs.tail(10)])
+    fig, ax = plt.subplots(figsize=(9, 7))
+    ax.barh(top.index, top.values, color=["tab:blue" if v < 0 else "tab:red" for v in top.values])
+    ax.axvline(0, color="black", linewidth=0.8)
+    ax.set_xlabel("coefficient\nred = pushes toward injury/death, blue = pushes toward malfunction")
+    ax.set_title("Logistic regression coefficients" + (" (pumps only)" if args.pumps else "")
+                 + f"\ntop 10 features each way, C={c}")
+    fig.tight_layout()
+    fig.savefig(fig_dir / f"logreg_coefficients{suffix}.png", dpi=150)
+    print(f"saved figures/logreg_coefficients{suffix}.png")
