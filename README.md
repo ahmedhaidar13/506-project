@@ -38,7 +38,7 @@ Or run one stage at a time:
 |---|---|---|
 | `make process` | Dedupes, standardizes dates, builds the label and features | `data/processed/events_clean.csv` |
 | `make charts` | Class balance and per-feature injury/death rates | `figures/class_balance.png`, `figures/findings_*.png` |
-| `make model` | Stage 1: decision tree, Naive Bayes vs KNN comparison, K-Means on descriptions (all devices, then pumps only) | `figures/tree_*.png`, `figures/model_comparison.png`, `figures/kmeans_clusters.png` |
+| `make model` | Stage 1: decision tree, Naive Bayes / KNN / logistic regression comparison, K-Means on descriptions (all devices, then pumps only) | `figures/tree_*.png`, `figures/model_comparison.png`, `figures/logreg_coefficients.png`, `figures/kmeans_clusters.png` |
 | `make stage2` | Stage 2: injury/death spike signal vs. FDA recall dates | `data/processed/stage2_results.csv`, `figures/stage2_timeline.png` |
 
 `make clean` deletes `.venv` and `data/processed/` (raw downloads are kept) so you can rebuild from scratch.
@@ -58,6 +58,46 @@ The tests in `tests/` use small made-up data, so they don't need `data/`. They c
 1. Make a branch off `main`: `git checkout -b your-feature`
 2. Make your changes and run `make test`
 3. Push and open a pull request; the tests must pass before merging
+
+## Results so far
+
+### Stage 1: flagging injury/death reports
+
+We train on 2020-2023 and test on 2024-2025. The classifiers use only structured fields (device, user, setting, parts, and product problems). The event description text is used only for K-Means clustering, so it can't hand the classifiers the answer. We also removed two catch-all problem codes ("Adverse Event Without Identified Device or Use Problem" and "Insufficient Device Problem Information") after they dominated the decision tree's feature importance, since they were close to restating the label.
+
+Injury/death is 6.8% of the test reports (11.3% for pumps only). The baseline always predicts injury/death, which gives an F1 of 2p/(1+p). Our goal is to beat that by at least 0.15.
+
+**All devices** (33,281 test reports, baseline F1 0.127, goal 0.277)
+
+| Model | Precision | Recall | Injury/death F1 | Beats baseline by |
+|---|---|---|---|---|
+| KNN | 0.41 | 0.54 | **0.47** | 0.34 |
+| Logistic regression | 0.40 | 0.51 | **0.45** | 0.32 |
+| Decision tree | 0.18 | 0.78 | 0.29 | 0.16 |
+| Naive Bayes | 0.14 | 0.39 | 0.21 | 0.08 |
+
+**Insulin pumps only** (15,347 test reports, baseline F1 0.203, goal 0.353)
+
+| Model | Precision | Recall | Injury/death F1 | Beats baseline by |
+|---|---|---|---|---|
+| KNN | 0.56 | 0.58 | **0.57** | 0.36 |
+| Logistic regression | 0.54 | 0.52 | **0.53** | 0.33 |
+| Naive Bayes | 0.29 | 0.59 | 0.39 | 0.18 |
+| Decision tree | 0.26 | 0.74 | 0.38 | 0.18 |
+
+KNN and logistic regression clear the goal on both sets. For KNN, Naive Bayes, and logistic regression, the settings (k, C) and the probability cutoff are picked on 2023 as a validation year, then the model is refit on all of 2020-2023. The decision tree uses a fixed depth of 6 and the default cutoff, which is part of why it trades precision for recall.
+
+![Model comparison, all devices](figures/model_comparison.png)
+
+![Logistic regression coefficients](figures/logreg_coefficients.png)
+
+One thing to keep in mind: the injury/death share rises from about 4% in 2020-2023 to about 7% in 2024-2025, so cutoffs picked on 2023 are tuned for a lower rate than the test years have.
+
+### Stage 2: early warning before recalls (secondary)
+
+Stage 2 did not meet its target. After the 12-month new-recall rule, 7 recalls were left to test against. Our injury/death spike signal flagged 2 of them (29%) 3-12 months early, with a median lead of 8 months. The raw report-spike baseline also flagged 2 of 7 (29%), with a median lead of 6.5 months, and it raised fewer false flags (0.18 per device-year compared with our 0.51). The goal was at least 50% and beating the baseline. There are few recalls in 2020-2025 for these device types, and report counts also move with how widely a device is used, so we treat this as a limitation instead of a main result.
+
+![Stage 2 signal vs. recall dates](figures/stage2_timeline.png)
 
 ---
 
