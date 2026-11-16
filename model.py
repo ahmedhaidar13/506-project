@@ -55,6 +55,9 @@ n_problems = 30
 drop_problems = ["Adverse Event Without Identified Device or Use Problem",
                  "Insufficient Device Problem Information"]
 max_depth = 6
+# --keep-all-problems turns drop_problems off, to reproduce the leakage figures from our
+# proposal feedback (figures/*_all_problems.png). Not used for any of our results.
+keep_all = False
 
 
 def load():
@@ -106,11 +109,21 @@ def build_features(train, test):
     return X_train, X_test
 
 
+# extra words for plot titles, so each version of a plot says what it shows
+def plot_note():
+    notes = []
+    if "_pumps" in fig_suffix:
+        notes.append("pumps only")
+    if keep_all:
+        notes.append("all problem codes kept")
+    return f" ({', '.join(notes)})" if notes else ""
+
+
 def plot_confusion_matrix(y_test, pred):
     disp = ConfusionMatrixDisplay.from_predictions(
         y_test, pred, display_labels=["Malfunction", "Injury/Death"], cmap="Blues", colorbar=False
     )
-    disp.ax_.set_title("Decision tree, 2024-2025 test set" + (" (pumps only)" if fig_suffix else ""))
+    disp.ax_.set_title("Decision tree, 2024-2025 test set" + plot_note())
     disp.figure_.tight_layout()
     disp.figure_.savefig(fig_dir / f"tree_confusion_matrix{fig_suffix}.png", dpi=150)
     plt.close(disp.figure_)
@@ -121,7 +134,7 @@ def plot_importances(importances):
     fig, ax = plt.subplots(figsize=(8, 6))
     ax.barh(top.index, top.values, color="#4C72B0")
     ax.set_xlabel("Feature importance")
-    ax.set_title("Top 15 features, decision tree" + (" (pumps only)" if fig_suffix else ""))
+    ax.set_title("Top 15 features, decision tree" + plot_note())
     fig.tight_layout()
     fig.savefig(fig_dir / f"tree_feature_importance{fig_suffix}.png", dpi=150)
     plt.close(fig)
@@ -132,6 +145,8 @@ if __name__ == "__main__":
     parser.add_argument("--groups", nargs="+", default=default_groups,
                         choices=list(feature_groups))
     parser.add_argument("--pumps", action="store_true", help="only insulin pump reports")
+    parser.add_argument("--keep-all-problems", action="store_true",
+                        help="don't drop the near-label problem codes (leakage check only)")
     args = parser.parse_args()
     for g in args.groups:
         cat_cols += feature_groups[g]
@@ -143,6 +158,11 @@ if __name__ == "__main__":
         df = df[df["product_code"].isin(pump_codes)]
         fig_suffix = "_pumps"
         print("pumps only:", len(df), "reports")
+    if args.keep_all_problems:
+        keep_all = True
+        drop_problems = []
+        fig_suffix += "_all_problems"
+        print("keeping all problem codes (leakage check, not a result)")
     train, test = split(df)
     print(f"train: {len(train)} rows, injury/death share {train['label'].mean():.3f}")
     print(f"test:  {len(test)} rows, injury/death share {test['label'].mean():.3f}")

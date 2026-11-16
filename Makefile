@@ -45,6 +45,7 @@ charts: install check-processed
 model: install check-processed
 	$(PYTHON) model.py
 	$(PYTHON) model.py --pumps
+	$(PYTHON) model.py --groups original --keep-all-problems
 	$(PYTHON) compare_models.py
 	$(PYTHON) compare_models.py --pumps
 	$(PYTHON) kmeans.py
