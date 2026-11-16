@@ -31,7 +31,7 @@ feature_groups = {
     # brand is handled like manufacturer (top brands, the rest are "Other"), see build_features
     "brand": [],
 }
-# our main model: the best F1 in our comparison, and every feature makes sense
+# the feature groups every model uses (see compare_models.py for the comparison, where KNN and logistic regression score highest)
 default_groups = ["original", "setting", "parts"]
 
 # insulin pump product codes, for --pumps (looks only inside pumps, without the sensors)
