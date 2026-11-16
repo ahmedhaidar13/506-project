@@ -49,6 +49,15 @@ def test_features_line_up_and_leave_out_the_label(monkeypatch):
     assert "problem_Pumping Stopped" in X_train.columns
 
 
+def test_keep_all_problems_brings_back_the_dropped_codes(monkeypatch):
+    monkeypatch.setattr(model, "cat_cols", model.feature_groups["original"])
+    monkeypatch.setattr(model, "drop_problems", [])
+    train = make_reports([2020, 2021, 2022, 2023])
+    train.loc[train.index[0], "product_problems"] = "Adverse Event Without Identified Device or Use Problem"
+    X_train, _ = model.build_features(train, make_reports([2024, 2025]))
+    assert "problem_Adverse Event Without Identified Device or Use Problem" in X_train.columns
+
+
 def test_spike_detector_flags_big_jump_but_not_tiny_one():
     months = pd.period_range("2020-01", periods=20, freq="M")
     counts = pd.Series([3] * 20, index=months)
