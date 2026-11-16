@@ -6,3 +6,5 @@ __pycache__/
 
 check_fields.py
 check_totals.py
+
+.pytest_cache/

@@ -1,5 +1,66 @@
 # Flagging Serious Medical Device Harm from FDA Adverse Event Reports
 
+**Presentation video:** _link coming soon_
+
+## How to build and run
+
+Requires Python 3.9+ and `make`. Tested on macOS and Linux; the GitHub Actions run uses Python 3.11 on Ubuntu. On Windows, use WSL.
+
+```bash
+git clone https://github.com/ahmedhaidar13/506-project.git
+cd 506-project
+make install      # creates .venv and installs requirements.txt
+```
+
+**1. Get the data** (only needed once, can take a while):
+
+Get a free openFDA API key from https://open.fda.gov/apis/authentication/ and put it in a file called `.env` in the repo root:
+
+```
+OPENFDA_API_KEY=your_key_here
+```
+
+Then run:
+
+```bash
+make data         # downloads ~100k sampled adverse event reports plus recalls, 510(k)s and device classifications into data/raw/
+```
+
+**2. Reproduce all results:**
+
+```bash
+make all          # clean -> charts -> Stage 1 models -> Stage 2 backtest
+```
+
+Or run one stage at a time:
+
+| Command | What it does | Outputs |
+|---|---|---|
+| `make process` | Dedupes, standardizes dates, builds the label and features | `data/processed/events_clean.csv` |
+| `make charts` | Class balance and per-feature injury/death rates | `figures/class_balance.png`, `figures/findings_*.png` |
+| `make model` | Stage 1: decision tree, Naive Bayes vs KNN comparison, K-Means on descriptions (all devices, then pumps only) | `figures/tree_*.png`, `figures/model_comparison.png`, `figures/kmeans_clusters.png` |
+| `make stage2` | Stage 2: injury/death spike signal vs. FDA recall dates | `data/processed/stage2_results.csv`, `figures/stage2_timeline.png` |
+
+`make clean` deletes `.venv` and `data/processed/` (raw downloads are kept) so you can rebuild from scratch.
+
+Run `make help` to list every command.
+
+## Testing
+
+```bash
+make test
+```
+
+The tests in `tests/` use small made-up data, so they don't need `data/`. They check the 2020-23 / 2024-25 time split, that train and test features line up without leaking the label, the Stage 2 spike detector, and the 12-month new-recall rule. GitHub Actions (`.github/workflows/tests.yml`) runs them on every push and pull request.
+
+## Contributing
+
+1. Make a branch off `main`: `git checkout -b your-feature`
+2. Make your changes and run `make test`
+3. Push and open a pull request; the tests must pass before merging
+
+---
+
 ## Project Description:
 When a medical device such as an insulin pump or glucose monitor has a problem, it may get reported to the FDA. The FDA makes millions of these device reports publicly accessible through its MAUDE database, which includes some info on the devices as well as a description of the event that occurred. Because there are far too many reports to review manually, reports where a patient was seriously hurt sit in the same pile as reports of minor glitches, so serious cases can go unnoticed. Our project will address this issue by building a classification model that uses info from each report to identify whether it involved an injury or death instead of just a malfunction, which makes it so that serious reports can be prioritized for review.
 
